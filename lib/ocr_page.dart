@@ -25,9 +25,9 @@ class _OcrPageState extends State<OcrPage> {
 
     setState(() => ocrResult = "Reading...");
 
-    final text = await vision.extractText(imageFile);
+    final text = await vision.extractWeightsFromImage(imageFile);
 
-    setState(() => ocrResult = text);
+    setState(() => ocrResult = text.toString());
   }
 
   @override
