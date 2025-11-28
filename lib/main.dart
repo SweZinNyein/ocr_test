@@ -1,133 +1,144 @@
-import 'dart:developer';
+// import 'dart:developer';
+
+// import 'package:flutter/material.dart';
+// import 'package:image_picker/image_picker.dart';
+// import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+// import 'package:ocr_test_with_ml/ocr_page.dart';
+// import 'package:ocr_test_with_ml/weight_item_model.dart';
+
+// import 'ocr_service.dart';
+
+// void main() {
+//   runApp(const MyApp());
+// }
+
+// class MyApp extends StatelessWidget {
+//   const MyApp({super.key});
+//   @override
+//   Widget build(BuildContext context) {
+//     return MaterialApp(
+//       title: 'Receipt OCR Demo',
+//       theme: ThemeData(primarySwatch: Colors.blue),
+//       home: const OcrPage(),
+//     );
+//   }
+// }
+
+import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-import 'package:ocr_test_with_ml/ocr_page.dart';
-import 'package:ocr_test_with_ml/weight_item_model.dart';
-
-import 'ocr_service.dart';
+import 'package:google_generative_ai/google_generative_ai.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(const GeminiOCRApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class GeminiOCRApp extends StatelessWidget {
+  const GeminiOCRApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Receipt OCR Demo',
+      title: "Gemini OCR Example",
       theme: ThemeData(primarySwatch: Colors.blue),
-      home: const OcrPage(),
+      home: const OCRPage(),
     );
   }
 }
 
-// class OcrPage extends StatefulWidget {
-//   const OcrPage({super.key});
-//   @override
-//   State<OcrPage> createState() => _OcrPageState();
-// }
+class OCRPage extends StatefulWidget {
+  const OCRPage({super.key});
 
-// class _OcrPageState extends State<OcrPage> {
-//   final picker = ImagePicker();
-//   final ocrService = OcrService();
+  @override
+  State<OCRPage> createState() => _OCRPageState();
+}
 
-//   bool loading = false;
-//   List<WeightItem> items = [];
-//   Map<String, dynamic>? total;
+class _OCRPageState extends State<OCRPage> {
+  File? selectedImage;
+  List<String> weights = [];
+  bool loading = false;
 
-//   Future<void> _pickImage() async {
-//     final picked = await picker.pickImage(source: ImageSource.gallery);
-//     if (picked == null) return;
-//     setState(() {
-//       loading = true;
-//       items = [];
-//       total = null;
-//     });
+  final ImagePicker picker = ImagePicker();
 
-//     try {
-//       final inputImage = InputImage.fromFilePath(picked.path);
-//       final recognized = await ocrService.processImage(inputImage);
+  final String apiKey = "AIzaSyAhLhr1ybESLtq5CPakfvUcFxe8VCxPGbo";
 
-//       // debug: print recognized text blocks
-//       debugPrint('--- recognized whole text ---');
-//       debugPrint(recognized.text);
+  Future<void> pickImage() async {
+    final XFile? file = await picker.pickImage(source: ImageSource.gallery);
 
-//       // parse weights
-//       final parsed = ocrService.parseWeightsFromRecognizedText(recognized);
+    if (file == null) return;
 
-//       // if empty, attempt fallback: try per-line heuristics using line.text
-//       if (parsed.isEmpty) {
-//         for (final b in recognized.blocks) {
-//           for (final l in b.lines) {
-//             final alt = ocrService.parseLineWithHeuristics(l.text);
-//             if (alt != null) parsed.add(alt);
-//           }
-//         }
-//       }
+    setState(() {
+      selectedImage = File(file.path);
+      weights = [];
+    });
 
-//       final parsedTotal = ocrService.parseTotalFromRecognizedText(recognized);
+    await extractWeightsGemini(File(file.path));
+  }
 
-//       // debug prints
-//       for (int i = 0; i < parsed.length; i++) {
-//         debugPrint('[log] $i ${parsed[i].no} ${parsed[i].weight} ${parsed[i].unit}');
-//       }
-//       if (parsedTotal != null) {
-//         debugPrint('[log] TOTAL ${parsedTotal['total']} ${parsedTotal['unit']}');
-//       }
+  /// Gemini OCR + Weight Extraction
+  Future<void> extractWeightsGemini(File imageFile) async {
+    setState(() => loading = true);
 
-//       setState(() {
-//         items = parsed;
-//         total = parsedTotal;
-//         loading = false;
-//       });
-//     } catch (e, st) {
-//       debugPrint('OCR failed: $e\n$st');
-//       setState(() => loading = false);
-//       rethrow;
-//     }
-//   }
+    try {
+      final model = GenerativeModel(model: "gemini-2.0-flash", apiKey: apiKey);
 
-//   Widget _buildList() {
-//     if (loading) return const Center(child: CircularProgressIndicator());
-//     if (items.isEmpty) return const Text('No items parsed yet.');
+      final bytes = await imageFile.readAsBytes();
 
-//     return Expanded(
-//       child: ListView.builder(
-//         itemCount: items.length,
-//         itemBuilder: (c, i) {
-//           final it = items[i];
-//           log('${it.weight} ${it.unit}');
-//           return ListTile(leading: Text('${it.no}'), title: Text('${it.weight} ${it.unit}'), subtitle: Text('index $i'));
-//         },
-//       ),
-//     );
-//   }
+      final prompt = """
+Extract all weight values from this image.
+Each value MUST contain a number + unit (lb or kg).
+Return ONLY a JSON array of strings.
+Example: ["110.7 lb", "110.6 lb"]
+""";       
 
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       appBar: AppBar(title: const Text('Receipt OCR (robust)')),
-//       body: Padding(
-//         padding: const EdgeInsets.all(12.0),
-//         child: Column(
-//           children: [
-//             ElevatedButton.icon(onPressed: _pickImage, icon: const Icon(Icons.photo), label: const Text('Pick receipt image')),
-//             const SizedBox(height: 12),
-//             _buildList(),
-//             if (total != null)
-//               Padding(
-//                 padding: const EdgeInsets.symmetric(vertical: 8),
-//                 child: Text(
-//                   'Total: ${total!['total']} ${total!['unit']}',
-//                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-//                 ),
-//               ),
-//           ],
-//         ),
-//       ),
-//     );
-//   }
-// }
+      final response = await model.generateContent([Content.text(prompt), Content.data("image/jpeg", bytes)]);
+
+      String raw = response.text ?? "[]";
+
+      // Remove formatting if Gemini wraps response
+      raw = raw.replaceAll("```json", "").replaceAll("```", "");
+
+      // Convert JSON array to list
+      final List<dynamic> list = jsonDecode(raw);
+
+      setState(() {
+        weights = list.map((e) => e.toString()).toList();
+      });
+    } catch (e) {
+      setState(() {
+        weights = ["ERROR: $e"];
+      });
+    }
+
+    setState(() => loading = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("Gemini OCR (Free)")),
+      floatingActionButton: FloatingActionButton(onPressed: pickImage, child: const Icon(Icons.image)),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            selectedImage == null ? const Text("Pick an image to extract weights") : Image.file(selectedImage!, height: 200),
+
+            const SizedBox(height: 20),
+
+            loading
+                ? const CircularProgressIndicator()
+                : Expanded(
+                    child: ListView.builder(
+                      itemCount: weights.length,
+                      itemBuilder: (context, index) => Card(child: ListTile(title: Text(weights[index]))),
+                    ),
+                  ),
+          ],
+        ),
+      ),
+    );
+  }
+}
